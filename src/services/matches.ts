@@ -4,6 +4,7 @@ import {
   addDoc,
   updateDoc,
   getDoc,
+  getDocs,
   deleteDoc,
   query,
   where,
@@ -263,6 +264,54 @@ export async function leaveMatch(
       'leaveMatch:updateDoc',
     )
   }
+}
+
+/**
+ * Ensures the user has a participant document in the subcollection.
+ * Called when entering the room — the creator is in activeRefs but
+ * doesn't get a participant doc from createMatch.
+ */
+export async function ensureRefParticipant(
+  matchId: string,
+  userId: string,
+  displayName: string,
+  role: ParticipantRole = 'referee',
+): Promise<void> {
+  const database = requireDb()
+  const participantsRef = collection(database, 'matches', matchId, 'participants')
+  const q = query(participantsRef, where('userId', '==', userId))
+  const snap = await getDocs(q)
+  if (!snap.empty) return
+
+  await addDoc(participantsRef, {
+    matchId,
+    userId,
+    displayName,
+    role,
+    joinedAt: serverTimestamp(),
+    isConnected: true,
+    isMuted: false,
+  })
+}
+
+export async function removeParticipant(
+  matchId: string,
+  targetUserId: string,
+): Promise<void> {
+  const database = requireDb()
+  await withTimeout(
+    updateDoc(doc(database, 'matches', matchId), {
+      activeRefs: arrayRemove(targetUserId),
+      updatedAt: serverTimestamp(),
+    }),
+    10000,
+    'removeParticipant:updateDoc',
+  )
+  const participantsRef = collection(database, 'matches', matchId, 'participants')
+  const q = query(participantsRef, where('userId', '==', targetUserId))
+  const snap = await getDocs(q)
+  const deletes = snap.docs.map((d) => deleteDoc(d.ref))
+  await Promise.all(deletes)
 }
 
 export async function setRefRole(

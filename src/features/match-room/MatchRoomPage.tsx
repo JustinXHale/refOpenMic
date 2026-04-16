@@ -17,7 +17,8 @@ import { ConnectionState, type Room } from 'livekit-client'
 import { useAuth } from '@/contexts/AuthContext'
 import { Header } from '@/components/layout/Header'
 import { useMatch } from '@/hooks/useMatches'
-import { leaveMatch, subscribeToParticipants } from '@/services/matches'
+import { leaveMatch, subscribeToParticipants, ensureRefParticipant, removeParticipant } from '@/services/matches'
+import { useToast } from '@/contexts/ToastContext'
 import {
   connectToRoom,
   setMicEnabled,
@@ -44,6 +45,7 @@ export function MatchRoomPage() {
   const { match, loading } = useMatch(matchId)
   const { user, isDemo } = useAuth()
   const navigate = useNavigate()
+  const { showToast } = useToast()
 
   const [participants, setParticipants] = useState<Participant[]>([])
   const [isMuted, setIsMuted] = useState(false)
@@ -69,6 +71,13 @@ export function MatchRoomPage() {
     }
     return subscribeToParticipants(matchId, setParticipants)
   }, [matchId, isDemo])
+
+  useEffect(() => {
+    if (!match || !user || !matchId || isDemo) return
+    const displayName = user.displayName || 'Referee'
+    const participantRole = isRef ? (match.creatorId === user.uid ? 'creator' : 'referee') : 'spectator'
+    ensureRefParticipant(matchId, user.uid, displayName, participantRole).catch(() => {})
+  }, [match, user, matchId, isDemo, isRef])
 
   // LiveKit connection
   useEffect(() => {
@@ -203,10 +212,19 @@ export function MatchRoomPage() {
   )
   const spectatorCount = match.spectatorCount
 
-  const handleRemove = (targetUserId: string) => {
-    if (!matchId || !isAdmin || !isDemo) return
+  const handleRemove = async (targetUserId: string) => {
+    if (!matchId || !isAdmin) return
     if (!window.confirm('Remove this participant?')) return
-    demoRemoveParticipant(matchId, user.uid, targetUserId)
+    try {
+      if (isDemo) {
+        demoRemoveParticipant(matchId, user.uid, targetUserId)
+      } else {
+        await removeParticipant(matchId, targetUserId)
+      }
+      showToast('Participant removed')
+    } catch {
+      showToast('Failed to remove participant', 'error')
+    }
   }
 
   const handleToggleAdmin = (
@@ -460,6 +478,44 @@ export function MatchRoomPage() {
                 {spectatorCount !== 1 ? 's' : ''} listening
               </Typography>
             )}
+
+            <Stack spacing={1} sx={{ mt: 3, pt: 2, borderTop: 1, borderColor: 'grey.700' }}>
+              <Typography variant="caption" color="grey.400" sx={{ textTransform: 'uppercase', letterSpacing: 1 }}>
+                Share Codes
+              </Typography>
+              <Stack direction="row" alignItems="center" justifyContent="space-between">
+                <Box>
+                  <Typography variant="caption" color="grey.500">Ref Code</Typography>
+                  <Typography variant="body2" color="grey.200" fontFamily="monospace" fontWeight={700} letterSpacing={2}>
+                    {match.refCode}
+                  </Typography>
+                </Box>
+                <Button
+                  size="small"
+                  sx={{ color: 'grey.400' }}
+                  onClick={() => { navigator.clipboard.writeText(match.refCode); showToast('Ref code copied') }}
+                >
+                  Copy
+                </Button>
+              </Stack>
+              {match.isPrivate && match.spectatorCode && (
+                <Stack direction="row" alignItems="center" justifyContent="space-between">
+                  <Box>
+                    <Typography variant="caption" color="grey.500">Spectator Code</Typography>
+                    <Typography variant="body2" color="grey.200" fontFamily="monospace" fontWeight={700} letterSpacing={2}>
+                      {match.spectatorCode}
+                    </Typography>
+                  </Box>
+                  <Button
+                    size="small"
+                    sx={{ color: 'grey.400' }}
+                    onClick={() => { navigator.clipboard.writeText(match.spectatorCode || ''); showToast('Spectator code copied') }}
+                  >
+                    Copy
+                  </Button>
+                </Stack>
+              )}
+            </Stack>
           </Box>
         </Paper>
       )}

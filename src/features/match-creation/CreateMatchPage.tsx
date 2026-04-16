@@ -347,7 +347,7 @@ export function CreateMatchPage() {
               getAriaValueText={(v) => `${v} referee${v !== 1 ? 's' : ''}`}
             />
             <Typography variant="caption" color="text.secondary">
-              How many refs can connect (1–{MAX_REFS_LIMIT})
+              Total refs including you (1–{MAX_REFS_LIMIT})
             </Typography>
           </Box>
 
