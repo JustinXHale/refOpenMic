@@ -59,7 +59,33 @@ Pushes to `main` run [`.github/workflows/deploy-pages.yml`](.github/workflows/de
 
 **URL:** [https://justinxhale.github.io/refAudio/](https://justinxhale.github.io/refAudio/)
 
-**First-time setup:** **Settings → Pages → Build and deployment → Source: Deploy from a branch** → Branch **`gh-pages`**, folder **`/ (root)`**. Save. After the first successful workflow run, the branch exists and the site should load (may take a minute).
+### One-time: enable Pages
+
+**Settings → Pages → Build and deployment → Source: Deploy from a branch** → Branch **`gh-pages`**, folder **`/ (root)`**. After the first workflow run, pick `gh-pages` if it was not listed yet.
+
+### Production Firebase on GitHub Pages
+
+Vite reads **`VITE_*` variables at build time**. For the deployed site to use your real Firebase project, add **repository secrets** (same names as in [`.env.example`](.env.example)):
+
+**Settings → Secrets and variables → Actions → New repository secret**
+
+| Secret name | Source |
+|-------------|--------|
+| `VITE_FIREBASE_API_KEY` | Firebase Console → Project settings → Your apps → Web app |
+| `VITE_FIREBASE_AUTH_DOMAIN` | same |
+| `VITE_FIREBASE_PROJECT_ID` | same |
+| `VITE_FIREBASE_STORAGE_BUCKET` | same |
+| `VITE_FIREBASE_MESSAGING_SENDER_ID` | same |
+| `VITE_FIREBASE_APP_ID` | same |
+| `VITE_LIVEKIT_URL` | Optional until LiveKit is wired in the client (`wss://…`) |
+
+Then push to `main` (or **Actions → Deploy to GitHub Pages → Run workflow**) so CI rebuilds with those values baked into the bundle.
+
+**Google sign-in on Pages:** In Firebase Console → **Authentication → Settings → Authorized domains**, add:
+
+- `justinxhale.github.io`
+
+**Local development:** Copy `.env.example` → `.env`, fill in the same keys (never commit `.env`).
 
 ---
 
