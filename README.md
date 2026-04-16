@@ -55,11 +55,11 @@ Key decisions documented in [`.design/decisions/`](.design/decisions/):
 
 ## Live demo (GitHub Pages)
 
-Pushes to `main` trigger [`.github/workflows/deploy-pages.yml`](.github/workflows/deploy-pages.yml), which builds the Vite app (with base path `/refAudio/`) and deploys to GitHub Pages.
+Pushes to `main` run [`.github/workflows/deploy-pages.yml`](.github/workflows/deploy-pages.yml): build with `base` `/refAudio/`, then push `dist/` to the **`gh-pages`** branch ([peaceiris/actions-gh-pages](https://github.com/peaceiris/actions-gh-pages)).
 
 **URL:** [https://justinxhale.github.io/refAudio/](https://justinxhale.github.io/refAudio/)
 
-**First-time setup:** In the GitHub repo, go to **Settings → Pages → Build and deployment** and set **Source** to **GitHub Actions** (not “Deploy from a branch”). The first workflow run after that will publish the site.
+**First-time setup:** **Settings → Pages → Build and deployment → Source: Deploy from a branch** → Branch **`gh-pages`**, folder **`/ (root)`**. Save. After the first successful workflow run, the branch exists and the site should load (may take a minute).
 
 ---
 
