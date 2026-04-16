@@ -12,6 +12,9 @@ import CardMedia from '@mui/material/CardMedia'
 import Chip from '@mui/material/Chip'
 import IconButton from '@mui/material/IconButton'
 import CircularProgress from '@mui/material/CircularProgress'
+import FormControl from '@mui/material/FormControl'
+import Select from '@mui/material/Select'
+import MenuItem from '@mui/material/MenuItem'
 import PlaceOutlinedIcon from '@mui/icons-material/PlaceOutlined'
 import CalendarTodayOutlinedIcon from '@mui/icons-material/CalendarTodayOutlined'
 import { useAuth } from '@/contexts/AuthContext'
@@ -35,8 +38,10 @@ import {
   demoToggleNotify,
   demoAddFakeRefs,
   demoUpdateMaxRefs,
+  demoSetRefRole,
 } from '@/services/demo'
-import { MAX_REFS_LIMIT } from '@/types'
+import { MAX_REFS_LIMIT, REF_ROLE_OPTIONS } from '@/types'
+import { refDisplayName } from '@/lib/refNames'
 
 export function MatchDetailPage() {
   const { matchId } = useParams<{ matchId: string }>()
@@ -48,10 +53,15 @@ export function MatchDetailPage() {
   const [joining, setJoining] = useState(false)
   const [saveSaving, setSaveSaving] = useState(false)
 
+  if (!user && !loading) {
+    navigate('/login', { replace: true })
+    return null
+  }
+
   if (loading) {
     return (
       <AppShell>
-        <Header title="Match" showBack />
+        <Header title="Event Details" showBack />
         <Box display="flex" justifyContent="center" alignItems="center" minHeight={240}>
           <CircularProgress />
         </Box>
@@ -62,10 +72,10 @@ export function MatchDetailPage() {
   if (!match) {
     return (
       <AppShell>
-        <Header title="Match" showBack />
+        <Header title="Event Details" showBack />
         <Stack alignItems="center" py={8} px={2} spacing={2}>
           <Typography color="text.secondary" fontWeight={600}>
-            Match not found
+            Event not found
           </Typography>
           <Button variant="contained" onClick={() => navigate('/')}>
             Go Home
@@ -208,17 +218,16 @@ export function MatchDetailPage() {
     ended: { label: 'ENDED', color: 'default' as const },
   }
 
-  const demoNames: Record<string, string> = {
-    'ref-jordan': 'AR1 - Jordan',
-    'ref-casey': 'AR2 - Casey',
-    'ref-riley': 'TMO - Riley',
+  const handleSetRefRole = (targetUserId: string, role: string) => {
+    if (!user || !matchId || !isDemo) return
+    demoSetRefRole(matchId, user.uid, targetUserId, role || null)
   }
 
   const s = statusChip[match.status]
 
   return (
     <AppShell>
-      <Header title="Match Details" showBack />
+      <Header title="Event Details" showBack />
       <Container maxWidth="sm" sx={{ py: 3, maxWidth: 512 }}>
         <Stack spacing={3}>
           {error && <Alert severity="error">{error}</Alert>}
@@ -354,7 +363,7 @@ export function MatchDetailPage() {
             <CardContent>
               <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
                 <Typography variant="subtitle2" fontWeight={700}>
-                  Referees ({match.activeRefs.length}/{match.maxRefs})
+                  Referee Team ({match.activeRefs.length}/{match.maxRefs})
                 </Typography>
                 {match.status === 'upcoming' && isAdmin && isDemo && (
                   <Button size="small" onClick={() => handleAddDemoRefs(false)}>
@@ -369,32 +378,64 @@ export function MatchDetailPage() {
                     No referees connected yet
                   </Typography>
                 ) : (
-                  match.activeRefs.map((refId, i) => (
-                    <Stack
-                      key={refId}
-                      direction="row"
-                      alignItems="center"
-                      justifyContent="space-between"
-                      sx={{ py: 1, px: 1.5, bgcolor: 'grey.100', borderRadius: 2 }}
-                    >
-                      <Stack direction="row" alignItems="center" spacing={1}>
-                        <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'success.main' }} />
-                        <Typography variant="body2" fontWeight={600}>
-                          {refId === user?.uid
-                            ? 'You'
-                            : demoNames[refId] || (refId === match.creatorId ? 'Organizer' : `Ref ${i + 1}`)}
-                        </Typography>
+                  match.activeRefs.map((refId, i) => {
+                    const name = refDisplayName(refId, i, user?.uid)
+                    const assignedRole = match.refRoles?.[refId] || ''
+                    return (
+                      <Stack
+                        key={refId}
+                        direction="row"
+                        alignItems="center"
+                        justifyContent="space-between"
+                        sx={{ py: 1, px: 1.5, bgcolor: 'grey.100', borderRadius: 2 }}
+                      >
+                        <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0, flex: 1 }}>
+                          <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'success.main', flexShrink: 0 }} />
+                          <Box sx={{ minWidth: 0 }}>
+                            <Typography variant="body2" fontWeight={600} noWrap>
+                              {name}
+                            </Typography>
+                            {assignedRole && !isAdmin && (
+                              <Typography variant="caption" color="text.secondary" noWrap>
+                                {assignedRole}
+                              </Typography>
+                            )}
+                          </Box>
+                        </Stack>
+
+                        <Stack direction="row" spacing={0.5} alignItems="center" sx={{ flexShrink: 0 }}>
+                          {isAdmin && match.status !== 'ended' ? (
+                            <FormControl size="small" sx={{ minWidth: 130 }}>
+                              <Select
+                                displayEmpty
+                                value={assignedRole}
+                                onChange={(e) => handleSetRefRole(refId, e.target.value)}
+                                sx={{ fontSize: '0.75rem', height: 30, '& .MuiSelect-select': { py: 0.5 } }}
+                              >
+                                <MenuItem value="">
+                                  <em>No role</em>
+                                </MenuItem>
+                                {REF_ROLE_OPTIONS.map((r) => (
+                                  <MenuItem key={r} value={r} sx={{ fontSize: '0.8rem' }}>
+                                    {r}
+                                  </MenuItem>
+                                ))}
+                              </Select>
+                            </FormControl>
+                          ) : (
+                            <>
+                              {assignedRole && (
+                                <Chip size="small" label={assignedRole} variant="outlined" />
+                              )}
+                            </>
+                          )}
+                          {refId === match.creatorId && (
+                            <Chip size="small" label="Creator" color="primary" variant="outlined" />
+                          )}
+                        </Stack>
                       </Stack>
-                      <Stack direction="row" spacing={0.5}>
-                        {refId === match.creatorId && (
-                          <Chip size="small" label="Creator" color="primary" variant="outlined" />
-                        )}
-                        {match.adminIds?.includes(refId) && refId !== match.creatorId && (
-                          <Chip size="small" label="Admin" color="warning" variant="outlined" />
-                        )}
-                      </Stack>
-                    </Stack>
-                  ))
+                    )
+                  })
                 )}
               </Stack>
 
@@ -437,7 +478,7 @@ export function MatchDetailPage() {
                         <Stack direction="row" alignItems="center" spacing={1}>
                           <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'info.main' }} />
                           <Typography variant="body2" fontWeight={600}>
-                            {uid === user?.uid ? 'You' : demoNames[uid] || `Ref ${i + 1}`}
+                            {refDisplayName(uid, i, user?.uid)}
                           </Typography>
                         </Stack>
                         <Typography variant="caption" color="info.main">
@@ -457,7 +498,7 @@ export function MatchDetailPage() {
           <Stack spacing={2}>
             {isAdmin && match.status === 'upcoming' && (
               <Button variant="contained" size="large" fullWidth onClick={handleStartMatch}>
-                Start Match
+                Start Event
                 {waitingRoom.length > 0 && (
                   <Typography component="span" variant="body2" sx={{ ml: 0.5, opacity: 0.9 }}>
                     ({waitingRoom.length} waiting)
@@ -469,17 +510,17 @@ export function MatchDetailPage() {
             {isAdmin && match.status === 'live' && (
               <>
                 <Button variant="contained" size="large" fullWidth onClick={handleEnterRoom}>
-                  Enter Match Room
+                  Enter Event Room
                 </Button>
                 <Button variant="outlined" color="error" size="large" fullWidth onClick={handleEndMatch}>
-                  End Match
+                  End Event
                 </Button>
               </>
             )}
 
             {!isAdmin && isRef && match.status === 'live' && (
               <Button variant="contained" size="large" fullWidth onClick={handleEnterRoom}>
-                Enter Match Room
+                Enter Event Room
               </Button>
             )}
 
@@ -499,7 +540,7 @@ export function MatchDetailPage() {
 
             {isInWaitingRoom && match.status === 'live' && (
               <Button variant="contained" size="large" fullWidth onClick={handleEnterRoom}>
-                Enter Match Room
+                Enter Event Room
               </Button>
             )}
 
@@ -534,15 +575,9 @@ export function MatchDetailPage() {
               </Button>
             )}
 
-            {!user && !match.isPrivate && (
-              <Button variant="contained" size="large" fullWidth onClick={() => navigate('/login')}>
-                Sign In to Listen
-              </Button>
-            )}
-
             {match.status === 'ended' && (
               <Typography align="center" color="text.secondary" variant="body2">
-                This match has ended.
+                This event has ended.
               </Typography>
             )}
 

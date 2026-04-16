@@ -134,7 +134,7 @@ export function JoinByCodePage() {
             fullWidth
             disabled={code.length !== 6 || searching}
           >
-            {searching ? 'Joining...' : 'Join Match'}
+            {searching ? 'Joining...' : 'Join Event'}
           </Button>
         </Stack>
 

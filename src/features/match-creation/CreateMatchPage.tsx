@@ -124,14 +124,14 @@ export function CreateMatchPage() {
 
   return (
     <AppShell>
-      <Header title="Create Match" showBack />
+      <Header title="Create Event" showBack />
       <Container maxWidth="sm" component="form" onSubmit={handleSubmit} sx={{ py: 3, maxWidth: 512 }}>
         <Stack spacing={2.5}>
           {error && <Alert severity="error">{error}</Alert>}
 
           <TextField
             id="title"
-            label="Match Title"
+            label="Event Title"
             required
             fullWidth
             value={title}
@@ -411,7 +411,7 @@ export function CreateMatchPage() {
             fullWidth
             disabled={!canSubmit || submitting}
           >
-            {submitting ? 'Creating...' : 'Create Match'}
+            {submitting ? 'Creating...' : 'Create Event'}
           </Button>
         </Stack>
       </Container>

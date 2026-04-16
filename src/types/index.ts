@@ -25,6 +25,19 @@ export interface UserProfile {
   savedMatchIds?: string[]
 }
 
+/** Labels the creator can assign to each ref (keyed by userId). */
+export type RefRole = typeof REF_ROLE_OPTIONS[number]
+
+export const REF_ROLE_OPTIONS = [
+  'Head Referee',
+  'Assistant Referee',
+  'TMO',
+  'Touch Judge',
+  'Reserve Official',
+  'Timekeeper',
+  'Other',
+] as const
+
 export interface Match {
   id: string
   createdAt: Timestamp
@@ -55,6 +68,9 @@ export interface Match {
   waitingRoom: string[]
   notifyList: string[]
   spectatorCount: number
+
+  /** Creator-assigned role labels for each ref (userId → role string). */
+  refRoles?: Record<string, string>
 
   roomId: string
   roomName: string

@@ -13,14 +13,22 @@ import MenuItem from '@mui/material/MenuItem'
 import Button from '@mui/material/Button'
 import CircularProgress from '@mui/material/CircularProgress'
 import Chip from '@mui/material/Chip'
+import List from '@mui/material/List'
+import Divider from '@mui/material/Divider'
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
+import ToggleButton from '@mui/material/ToggleButton'
+import GridViewRoundedIcon from '@mui/icons-material/GridViewRounded'
+import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded'
 import { AppShell } from '@/components/layout/AppShell'
 import { MatchCard } from '@/components/match/MatchCard'
+import { MatchListItem } from '@/components/match/MatchListItem'
 import { useLiveMatches, useUpcomingMatches, useUserMatches } from '@/hooks/useMatches'
 import { useSavedMatchIds } from '@/hooks/useSavedMatchIds'
 import { useAuth } from '@/contexts/AuthContext'
 import { isFirebaseConfigured } from '@/lib/firebase'
 
 type Tab = 'events' | 'my-events'
+type ViewMode = 'grid' | 'list'
 
 export function HomePage() {
   const { isDemo, user } = useAuth()
@@ -30,6 +38,7 @@ export function HomePage() {
   const { matches: upcomingMatches, loading: upcomingLoading } = useUpcomingMatches()
   const { matches: myMatches, loading: myMatchesLoading } = useUserMatches()
 
+  const [viewMode, setViewMode] = useState<ViewMode>('grid')
   const [dateFilter, setDateFilter] = useState<string>('')
   const [eventTypeFilter, setEventTypeFilter] = useState<string>('')
   const [locationFilter, setLocationFilter] = useState<string>('')
@@ -101,14 +110,32 @@ export function HomePage() {
 
   return (
     <AppShell>
-      <Container maxWidth="sm" disableGutters sx={{ maxWidth: 512, mx: 'auto' }}>
+      <Container maxWidth="sm" disableGutters sx={{ maxWidth: 600, mx: 'auto' }}>
         <Box sx={{ px: 2, pt: 3, pb: 2 }}>
-          <Typography variant="h4" component="h1" fontWeight={700}>
-            refOpenMic
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-            Referee communication for everyone
-          </Typography>
+          <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+            <Box>
+              <Typography variant="h4" component="h1" fontWeight={700}>
+                refOpenMic
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                Referee communication for everyone
+              </Typography>
+            </Box>
+            <ToggleButtonGroup
+              value={viewMode}
+              exclusive
+              onChange={(_, v) => { if (v) setViewMode(v) }}
+              size="small"
+              aria-label="View mode"
+            >
+              <ToggleButton value="grid" aria-label="Grid view">
+                <GridViewRoundedIcon fontSize="small" />
+              </ToggleButton>
+              <ToggleButton value="list" aria-label="List view">
+                <ViewListRoundedIcon fontSize="small" />
+              </ToggleButton>
+            </ToggleButtonGroup>
+          </Stack>
         </Box>
 
         {!isFirebaseConfigured && !isDemo && (
@@ -223,7 +250,7 @@ export function HomePage() {
           </Stack>
         )}
 
-        <Stack spacing={2} sx={{ px: 2, py: 2 }}>
+        <Box sx={{ px: 2, py: 2 }}>
           {loading ? (
             <Stack alignItems="center" py={6} spacing={2}>
               <CircularProgress color="primary" />
@@ -255,16 +282,37 @@ export function HomePage() {
                     : 'Check back later or create an event'}
               </Typography>
             </Stack>
+          ) : viewMode === 'grid' ? (
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(2, 1fr)',
+                gap: 1.5,
+              }}
+            >
+              {matches.map((match) => (
+                <MatchCard
+                  key={match.id}
+                  match={match}
+                  saved={!!user && savedIds.includes(match.id)}
+                  compact
+                />
+              ))}
+            </Box>
           ) : (
-            matches.map((match) => (
-              <MatchCard
-                key={match.id}
-                match={match}
-                saved={!!user && savedIds.includes(match.id)}
-              />
-            ))
+            <List disablePadding>
+              {matches.map((match, i) => (
+                <Box key={match.id}>
+                  {i > 0 && <Divider component="li" sx={{ mx: 1.5 }} />}
+                  <MatchListItem
+                    match={match}
+                    saved={!!user && savedIds.includes(match.id)}
+                  />
+                </Box>
+              ))}
+            </List>
           )}
-        </Stack>
+        </Box>
       </Container>
     </AppShell>
   )

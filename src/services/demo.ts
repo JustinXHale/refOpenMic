@@ -1,7 +1,9 @@
 import type { Match, Participant, ParticipantRole } from '@/types'
 import { DEFAULT_MAX_REFS } from '@/types'
+import { EVENT_PHOTO_PRESETS } from '@/lib/eventPhotos'
 
 const STORAGE_KEY = 'refOpenMic_demo_matches'
+const SEED_KEY = 'refOpenMic_demo_seeded'
 const SAVED_KEY_PREFIX = 'refOpenMic_demo_saved_'
 
 function savedStorageKey(userId: string) {
@@ -29,8 +31,149 @@ function toTimestamp(date: Date): unknown {
   return { toDate: () => date, seconds: date.getTime() / 1000, nanoseconds: 0 }
 }
 
+function hoursFromNow(hours: number): unknown {
+  return toTimestamp(new Date(Date.now() + hours * 60 * 60 * 1000))
+}
+
+function seedDemoMatches() {
+  if (localStorage.getItem(SEED_KEY)) return
+  const demoCreator = 'demo-organizer-001'
+  const seeds: Partial<Match>[] = [
+    {
+      title: 'MLR Semi-Final: Houston vs Dallas',
+      location: 'AVEVA Stadium, Houston TX',
+      eventType: 'sport',
+      eventSubtype: 'rugby',
+      status: 'live',
+      startedAt: now() as Match['startedAt'],
+      spectatorCount: 34,
+      eventPhotoUrl: EVENT_PHOTO_PRESETS[5].url,
+    },
+    {
+      title: 'Saturday Youth League — U14',
+      location: 'Zilker Park Field 3, Austin TX',
+      eventType: 'sport',
+      eventSubtype: 'rugby',
+      status: 'upcoming',
+      scheduledTime: hoursFromNow(2) as Match['scheduledTime'],
+      eventPhotoUrl: EVENT_PHOTO_PRESETS[0].url,
+    },
+    {
+      title: 'Club 7s Tournament — Pool A',
+      location: 'Infinity Park, Denver CO',
+      eventType: 'sport',
+      eventSubtype: 'rugby',
+      status: 'upcoming',
+      scheduledTime: hoursFromNow(5) as Match['scheduledTime'],
+      eventPhotoUrl: EVENT_PHOTO_PRESETS[4].url,
+    },
+    {
+      title: 'Community Soccer — Over 30s',
+      location: 'Maplewood Rec Center, Portland OR',
+      eventType: 'sport',
+      eventSubtype: 'soccer',
+      status: 'upcoming',
+      scheduledTime: hoursFromNow(8) as Match['scheduledTime'],
+      eventPhotoUrl: EVENT_PHOTO_PRESETS[1].url,
+    },
+    {
+      title: 'High School State Playoffs — Round 1',
+      location: 'Cardinal Stadium, Louisville KY',
+      eventType: 'sport',
+      eventSubtype: 'football',
+      status: 'upcoming',
+      scheduledTime: hoursFromNow(24) as Match['scheduledTime'],
+      eventPhotoUrl: EVENT_PHOTO_PRESETS[2].url,
+    },
+    {
+      title: 'Ref Training Scrimmage',
+      location: 'Glendale High School, Glendale AZ',
+      eventType: 'sport',
+      eventSubtype: 'rugby',
+      status: 'upcoming',
+      scheduledTime: hoursFromNow(26) as Match['scheduledTime'],
+      eventPhotoUrl: EVENT_PHOTO_PRESETS[7].url,
+    },
+    {
+      title: 'Basketball Open Gym — Refs Needed',
+      location: 'Downtown YMCA, Atlanta GA',
+      eventType: 'sport',
+      eventSubtype: 'basketball',
+      status: 'upcoming',
+      scheduledTime: hoursFromNow(30) as Match['scheduledTime'],
+      eventPhotoUrl: EVENT_PHOTO_PRESETS[3].url,
+    },
+    {
+      title: 'Sunday Social League — Mixed',
+      location: 'Randall\'s Island Field 42, New York NY',
+      eventType: 'sport',
+      eventSubtype: 'soccer',
+      status: 'upcoming',
+      scheduledTime: hoursFromNow(48) as Match['scheduledTime'],
+      eventPhotoUrl: EVENT_PHOTO_PRESETS[9].url,
+    },
+    {
+      title: 'Evening Indoor 5-a-Side',
+      location: 'SoccerCity Indoor, Chicago IL',
+      eventType: 'sport',
+      eventSubtype: 'soccer',
+      status: 'upcoming',
+      scheduledTime: hoursFromNow(52) as Match['scheduledTime'],
+      eventPhotoUrl: EVENT_PHOTO_PRESETS[8].url,
+    },
+    {
+      title: 'Friday Night Lights — Varsity',
+      location: 'Tiger Stadium, Baton Rouge LA',
+      eventType: 'sport',
+      eventSubtype: 'football',
+      status: 'upcoming',
+      scheduledTime: hoursFromNow(72) as Match['scheduledTime'],
+      eventPhotoUrl: EVENT_PHOTO_PRESETS[6].url,
+    },
+  ]
+
+  const matches: Match[] = seeds.map((s) => {
+    const id = generateId()
+    return {
+      id,
+      createdAt: now(),
+      updatedAt: now(),
+      title: s.title!,
+      level: 'club',
+      location: s.location!,
+      scheduledTime: s.scheduledTime ?? now(),
+      eventType: s.eventType ?? 'sport',
+      eventSubtype: s.eventSubtype,
+      eventPhotoUrl: s.eventPhotoUrl,
+      status: s.status ?? 'upcoming',
+      startedAt: s.startedAt,
+      isPublic: true,
+      isPrivate: false,
+      allowSpectators: true,
+      refCode: generateCode(),
+      creatorId: demoCreator,
+      adminIds: [demoCreator],
+      activeRefs: s.status === 'live' ? [demoCreator, 'ref-jordan', 'ref-casey'] : [demoCreator],
+      refRoles: s.status === 'live'
+        ? { [demoCreator]: 'Head Referee', 'ref-jordan': 'Assistant Referee', 'ref-casey': 'TMO' }
+        : {},
+      waitingRoom: [],
+      notifyList: [],
+      spectatorCount: s.spectatorCount ?? 0,
+      roomId: id,
+      roomName: `match-${id}`,
+      maxRefs: DEFAULT_MAX_REFS,
+      maxSpectators: 100,
+    } as Match
+  })
+
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(matches))
+  localStorage.setItem(SEED_KEY, '1')
+}
+
 function loadMatches(): Match[] {
   try {
+    seedDemoMatches()
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return []
     return JSON.parse(raw, (_key, value) => {
@@ -57,6 +200,7 @@ function ensureFields(match: Match): Match {
   if (match.isPrivate == null) match.isPrivate = false
   if (!match.eventType) match.eventType = 'sport'
   if (!match.eventSubtype) match.eventSubtype = 'rugby'
+  if (!match.refRoles) match.refRoles = {}
   return match
 }
 
@@ -437,6 +581,23 @@ export function demoGetParticipants(matchId: string): Participant[] {
     isMuted: false,
     isMutedByAdmin: mutedParticipants.has(`${matchId}:${uid}`),
   })) as Participant[]
+}
+
+export function demoSetRefRole(matchId: string, adminId: string, targetUserId: string, role: string | null) {
+  const matches = loadMatches()
+  const match = matches.find((m) => m.id === matchId)
+  if (!match) throw new Error('Match not found')
+  ensureFields(match)
+  if (match.creatorId !== adminId && !match.adminIds.includes(adminId)) {
+    throw new Error('Not authorized')
+  }
+  if (!match.refRoles) match.refRoles = {}
+  if (role) {
+    match.refRoles[targetUserId] = role
+  } else {
+    delete match.refRoles[targetUserId]
+  }
+  saveMatches(matches)
 }
 
 export function demoAddFakeRefs(matchId: string, toWaitingRoom = false) {
