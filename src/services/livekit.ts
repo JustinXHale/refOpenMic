@@ -12,10 +12,14 @@ import {
   Track,
   ConnectionState,
   Participant,
+  type RemoteTrack,
   type RemoteTrackPublication,
   type RemoteParticipant,
   type LocalTrackPublication,
 } from 'livekit-client'
+
+/** Detach must use the same element reference as attach, or audio can keep playing. */
+const audioElementsByTrackSid = new Map<string, HTMLAudioElement>()
 
 const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL as string | undefined
 const API_KEY = import.meta.env.VITE_LIVEKIT_API_KEY as string | undefined
@@ -54,6 +58,9 @@ export async function generateToken(
     .sign(secret)
 }
 
+/** Optional hook: invoked synchronously after connect + initial mic (if publishing), before `connectToRoom` returns. */
+export type OnRoomReady = (room: Room) => void
+
 export interface RoomCallbacks {
   onConnectionStateChanged: (state: ConnectionState) => void
   onTrackSubscribed: (
@@ -74,7 +81,7 @@ export async function connectToRoom(
   participantIdentity: string,
   participantName: string,
   canPublish: boolean,
-  callbacks: Partial<RoomCallbacks>,
+  callbacks: Partial<RoomCallbacks> & { onRoomReady?: OnRoomReady },
 ): Promise<Room> {
   if (!LIVEKIT_URL) throw new Error('LiveKit URL not configured')
 
@@ -104,9 +111,11 @@ export async function connectToRoom(
 
   room.on(
     RoomEvent.TrackSubscribed,
-    (track, publication, participant) => {
+    (track: RemoteTrack, publication: RemoteTrackPublication, participant) => {
       if (track.kind === Track.Kind.Audio) {
-        track.attach()
+        const el = track.attach() as HTMLAudioElement
+        const sid = publication.trackSid
+        if (sid) audioElementsByTrackSid.set(sid, el)
       }
       callbacks.onTrackSubscribed?.(publication, participant)
     },
@@ -114,8 +123,16 @@ export async function connectToRoom(
 
   room.on(
     RoomEvent.TrackUnsubscribed,
-    (track, publication, participant) => {
-      track.detach()
+    (track: RemoteTrack, publication: RemoteTrackPublication, participant) => {
+      const sid = publication.trackSid
+      const el = sid ? audioElementsByTrackSid.get(sid) : undefined
+      if (el) {
+        track.detach(el)
+        el.srcObject = null
+        audioElementsByTrackSid.delete(sid!)
+      } else {
+        track.detach()
+      }
       callbacks.onTrackUnsubscribed?.(publication, participant)
     },
   )
@@ -143,6 +160,8 @@ export async function connectToRoom(
     await room.localParticipant.setMicrophoneEnabled(true)
   }
 
+  callbacks.onRoomReady?.(room)
+
   return room
 }
 
@@ -156,4 +175,5 @@ export function getMicPublication(room: Room): LocalTrackPublication | undefined
 
 export function disconnectRoom(room: Room): void {
   room.disconnect()
+  audioElementsByTrackSid.clear()
 }

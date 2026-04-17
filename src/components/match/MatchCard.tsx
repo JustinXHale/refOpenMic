@@ -52,6 +52,13 @@ export function MatchCard({ match, saved, compact }: MatchCardProps) {
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
+        ...(match.status === 'ended' || match.archived
+          ? {
+              opacity: 0.72,
+              bgcolor: 'action.hover',
+              filter: 'grayscale(0.35)',
+            }
+          : {}),
       }}
     >
       <CardActionArea
@@ -79,6 +86,18 @@ export function MatchCard({ match, saved, compact }: MatchCardProps) {
                     label="LIVE"
                     sx={{ fontWeight: 700, height: compact ? 20 : 24, '& .MuiChip-label': { px: compact ? 0.75 : 1 } }}
                   />
+                )}
+                {match.status === 'ended' && (
+                  <Chip
+                    size="small"
+                    color="default"
+                    variant="outlined"
+                    label="ENDED"
+                    sx={{ fontWeight: 700, height: compact ? 20 : 24, '& .MuiChip-label': { px: compact ? 0.75 : 1 } }}
+                  />
+                )}
+                {!compact && match.archived && (
+                  <Chip size="small" label="Archived" color="default" variant="outlined" />
                 )}
                 {!compact && match.isPrivate && (
                   <Chip size="small" label="Private" color="warning" variant="outlined" />

@@ -108,6 +108,7 @@ export function CreateMatchPage() {
         allowSpectators,
         maxRefs,
         creatorId: user.uid,
+        creatorDisplayName: user.displayName || 'Organizer',
       }
 
       let matchId: string

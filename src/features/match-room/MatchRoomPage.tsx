@@ -13,7 +13,7 @@ import TuneIcon from '@mui/icons-material/Tune'
 import MicNoneOutlinedIcon from '@mui/icons-material/MicNoneOutlined'
 import MicOffOutlinedIcon from '@mui/icons-material/MicOffOutlined'
 import CallEndIcon from '@mui/icons-material/CallEnd'
-import { ConnectionState, type Room } from 'livekit-client'
+import { ConnectionState, RoomEvent, Track, type Room } from 'livekit-client'
 import { useAuth } from '@/contexts/AuthContext'
 import { Header } from '@/components/layout/Header'
 import { useMatch } from '@/hooks/useMatches'
@@ -69,9 +69,24 @@ export function MatchRoomPage() {
 
   const roomRef = useRef<Room | null>(null)
   const connectingRef = useRef(false)
+  /** Keeps LiveKit in sync when dynacast/republish toggles the mic (e.g. first subscriber joins). */
+  const isMutedRef = useRef(isMuted)
+  useEffect(() => {
+    isMutedRef.current = isMuted
+  }, [isMuted])
 
   const isRef = role === 'referee' || role === 'creator'
   const canPublish = isRef
+
+  const myParticipant = participants.find((p) => p.userId === user?.uid)
+
+  useEffect(() => {
+    if (isDemo || !roomRef.current || !user) return
+    if (myParticipant?.isMutedByAdmin === undefined) return
+    const adminMuted = !!myParticipant.isMutedByAdmin
+    setMicEnabled(roomRef.current, !adminMuted)
+    setIsMuted(adminMuted)
+  }, [isDemo, myParticipant?.isMutedByAdmin, myParticipant?.userId, user?.uid])
 
   useEffect(() => {
     if (!matchId) return
@@ -80,8 +95,9 @@ export function MatchRoomPage() {
       refresh()
       return demoSubscribe(refresh)
     }
+    if (!user) return
     return subscribeToParticipants(matchId, setParticipants)
-  }, [matchId, isDemo])
+  }, [matchId, isDemo, user])
 
   useEffect(() => {
     if (!match || !user || !matchId || isDemo) return
@@ -121,8 +137,24 @@ export function MatchRoomPage() {
           setConnectionState('connecting')
         }
       },
+      onRoomReady: (room) => {
+        roomRef.current = room
+        connectingRef.current = false
+        setRemoteCount(room.remoteParticipants.size)
+        if (canPublish) {
+          room.on(RoomEvent.LocalTrackPublished, (publication) => {
+            if (publication.source !== Track.Source.Microphone) return
+            if (!isMutedRef.current) return
+            void room.localParticipant.setMicrophoneEnabled(false)
+          })
+        }
+      },
       onParticipantConnected: () => {
         setRemoteCount((c) => c + 1)
+        const room = roomRef.current
+        if (room && canPublish) {
+          void room.localParticipant.setMicrophoneEnabled(!isMutedRef.current)
+        }
       },
       onParticipantDisconnected: () => {
         setRemoteCount((c) => Math.max(0, c - 1))
@@ -134,13 +166,7 @@ export function MatchRoomPage() {
         }
         setSpeakingMap(map)
       },
-    })
-      .then((room) => {
-        roomRef.current = room
-        setRemoteCount(room.remoteParticipants.size)
-        connectingRef.current = false
-      })
-      .catch((err) => {
+    }).catch((err) => {
         console.error('LiveKit connect failed:', err)
         setConnectionState('error')
         setErrorMsg(
@@ -158,6 +184,8 @@ export function MatchRoomPage() {
     }
   }, [match, user, isDemo, canPublish])
 
+  // When Firestore marks the match ended, all clients navigate out; LiveKit disconnects in cleanup.
+  // Follow-up: close the server-side room via LiveKit API or a Cloud Function for immediate teardown.
   useEffect(() => {
     if (match?.status === 'ended') {
       navigate(`/match/${matchId}`, { replace: true })

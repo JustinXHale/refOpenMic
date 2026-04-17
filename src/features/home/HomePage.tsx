@@ -7,6 +7,8 @@ import Tab from '@mui/material/Tab'
 import Alert from '@mui/material/Alert'
 import Stack from '@mui/material/Stack'
 import FormControl from '@mui/material/FormControl'
+import FormControlLabel from '@mui/material/FormControlLabel'
+import Switch from '@mui/material/Switch'
 import InputLabel from '@mui/material/InputLabel'
 import Select from '@mui/material/Select'
 import MenuItem from '@mui/material/MenuItem'
@@ -22,7 +24,13 @@ import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded'
 import { AppShell } from '@/components/layout/AppShell'
 import { MatchCard } from '@/components/match/MatchCard'
 import { MatchListItem } from '@/components/match/MatchListItem'
-import { useLiveMatches, useUpcomingMatches, useUserMatches } from '@/hooks/useMatches'
+import {
+  useLiveMatches,
+  useUpcomingMatches,
+  useEndedPublicMatches,
+  useUserMatches,
+  usePublicMatchesListenerError,
+} from '@/hooks/useMatches'
 import { useSavedMatchIds } from '@/hooks/useSavedMatchIds'
 import { useAuth } from '@/contexts/AuthContext'
 import { isFirebaseConfigured } from '@/lib/firebase'
@@ -36,15 +44,18 @@ export function HomePage() {
   const [tab, setTab] = useState<Tab>('events')
   const { matches: liveMatches, loading: liveLoading } = useLiveMatches()
   const { matches: upcomingMatches, loading: upcomingLoading } = useUpcomingMatches()
+  const { matches: endedMatches, loading: endedLoading } = useEndedPublicMatches()
   const { matches: myMatches, loading: myMatchesLoading } = useUserMatches()
+  const publicMatchesListenerError = usePublicMatchesListenerError()
 
   const [viewMode, setViewMode] = useState<ViewMode>('grid')
+  const [includeArchivedMyEvents, setIncludeArchivedMyEvents] = useState(false)
   const [dateFilter, setDateFilter] = useState<string>('')
   const [eventTypeFilter, setEventTypeFilter] = useState<string>('')
   const [locationFilter, setLocationFilter] = useState<string>('')
 
   const publicEvents = useMemo(() => {
-    return [...liveMatches, ...upcomingMatches].sort((a, b) => {
+    return [...liveMatches, ...upcomingMatches, ...endedMatches].sort((a, b) => {
       const aDate =
         typeof a.scheduledTime === 'object' && 'toDate' in a.scheduledTime
           ? (a.scheduledTime as { toDate: () => Date }).toDate()
@@ -55,7 +66,12 @@ export function HomePage() {
           : new Date(b.scheduledTime as unknown as string)
       return aDate.getTime() - bDate.getTime()
     })
-  }, [liveMatches, upcomingMatches])
+  }, [liveMatches, upcomingMatches, endedMatches])
+
+  const myEventsVisible = useMemo(() => {
+    if (includeArchivedMyEvents) return myMatches
+    return myMatches.filter((m) => !m.archived)
+  }, [myMatches, includeArchivedMyEvents])
 
   const uniqueDates = useMemo(() => {
     const dates = new Set<string>()
@@ -105,8 +121,11 @@ export function HomePage() {
     (uniqueDates.length > 1 || uniqueEventTypes.length > 1 || uniqueLocations.length > 1)
   const hasActiveFilters = dateFilter || eventTypeFilter || locationFilter
 
-  const matches = tab === 'events' ? filteredPublicEvents : myMatches
-  const loading = tab === 'events' ? liveLoading || upcomingLoading : myMatchesLoading
+  const matches = tab === 'events' ? filteredPublicEvents : myEventsVisible
+  const loading =
+    tab === 'events'
+      ? liveLoading || upcomingLoading || endedLoading
+      : myMatchesLoading
 
   return (
     <AppShell>
@@ -126,7 +145,7 @@ export function HomePage() {
                 </Typography>
               </Stack>
               <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                Referee communication for everyone &middot; v0.4
+                Referee communication for everyone &middot; v0.5
               </Typography>
             </Box>
             <ToggleButtonGroup
@@ -160,6 +179,14 @@ export function HomePage() {
           </Box>
         )}
 
+        {isFirebaseConfigured && !isDemo && publicMatchesListenerError && (
+          <Box sx={{ px: 2, mb: 2 }}>
+            <Alert severity="error">
+              <Typography variant="body2">{publicMatchesListenerError}</Typography>
+            </Alert>
+          </Box>
+        )}
+
         <Tabs
           value={tab}
           onChange={(_, v) => setTab(v as Tab)}
@@ -178,13 +205,28 @@ export function HomePage() {
             label={
               <Stack direction="row" alignItems="center" spacing={0.5} component="span">
                 <span>My Events</span>
-                {myMatches.length > 0 && (
-                  <Chip label={myMatches.length} size="small" color="primary" variant="outlined" />
+                {myEventsVisible.length > 0 && (
+                  <Chip label={myEventsVisible.length} size="small" color="primary" variant="outlined" />
                 )}
               </Stack>
             }
           />
         </Tabs>
+
+        {tab === 'my-events' && (
+          <Box sx={{ px: 2, pt: 1.5 }}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={includeArchivedMyEvents}
+                  onChange={(_, v) => setIncludeArchivedMyEvents(v)}
+                  size="small"
+                />
+              }
+              label="Include archived events"
+            />
+          </Box>
+        )}
 
         {showFilters && (
           <Stack spacing={1.5} sx={{ px: 2, pt: 2, pb: 1 }}>

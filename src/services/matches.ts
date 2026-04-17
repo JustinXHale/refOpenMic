@@ -8,12 +8,11 @@ import {
   deleteDoc,
   query,
   where,
-  orderBy,
   onSnapshot,
   serverTimestamp,
   arrayUnion,
   arrayRemove,
-  increment,
+  runTransaction,
   type Unsubscribe,
 } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
@@ -46,6 +45,7 @@ export interface CreateMatchInput {
   allowSpectators: boolean
   maxRefs: number
   creatorId: string
+  creatorDisplayName: string
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -73,11 +73,14 @@ export async function createMatch(input: CreateMatchInput): Promise<string> {
     refCode: generateCode(),
     spectatorCode: input.isPrivate ? generateCode() : null,
     creatorId: input.creatorId,
+    creatorDisplayName: input.creatorDisplayName,
     adminIds: [input.creatorId],
     activeRefs: [input.creatorId],
     waitingRoom: [],
     notifyList: [],
     spectatorCount: 0,
+    peakSpectators: 0,
+    archived: false,
     roomId: '',
     roomName: '',
     maxRefs: input.maxRefs || DEFAULT_MAX_REFS,
@@ -115,32 +118,157 @@ export function subscribeToMatch(
   })
 }
 
+/** Exclude archived matches client-side so anonymous queries stay rule-compatible. */
+function filterOutArchived(docs: { id: string; data: () => Record<string, unknown> }[]): Match[] {
+  return docs
+    .filter((d) => (d.data() as { archived?: boolean }).archived !== true)
+    .map((d) => ({ id: d.id, ...d.data() }) as Match)
+}
+
+function scheduledMs(m: Match): number {
+  const st = m.scheduledTime as { toDate?: () => Date } | undefined
+  if (st && typeof st.toDate === 'function') return st.toDate().getTime()
+  return 0
+}
+
+function startedMs(m: Match): number {
+  const st = m.startedAt as { toDate?: () => Date } | undefined
+  if (st && typeof st.toDate === 'function') return st.toDate().getTime()
+  return 0
+}
+
+/**
+ * Public home lists: one Firestore listener on `isPublic == true` only, then filter by `status`
+ * in memory. Compound queries (`status` + `isPublic`) are prone to `permission-denied` for
+ * signed-out clients when rules only constrain `isPublic` — the rules engine aligns cleanly
+ * with a single equality on `isPublic`.
+ */
+type PublicBucket = 'live' | 'upcoming' | 'ended'
+
+const publicBuckets: Record<
+  PublicBucket,
+  Set<(matches: Match[]) => void>
+> = {
+  live: new Set(),
+  upcoming: new Set(),
+  ended: new Set(),
+}
+
+let publicMatchesUnsub: Unsubscribe | null = null
+let publicMatchesCache: Match[] = []
+
+/** Fired when the shared public listener errors or recovers (message null = ok). */
+const publicListenerErrorSubscribers = new Set<(message: string | null) => void>()
+let lastPublicListenerMessage: string | null = null
+
+function setPublicListenerErrorMessage(message: string | null) {
+  lastPublicListenerMessage = message
+  publicListenerErrorSubscribers.forEach((fn) => fn(message))
+}
+
+/** Subscribe to Firestore errors from the shared public matches listener (dev/ops UX). */
+export function subscribePublicMatchesListenerError(
+  callback: (message: string | null) => void,
+): Unsubscribe {
+  publicListenerErrorSubscribers.add(callback)
+  callback(lastPublicListenerMessage)
+  return () => {
+    publicListenerErrorSubscribers.delete(callback)
+  }
+}
+
+function sortPublicByBucket(bucket: PublicBucket, list: Match[]): Match[] {
+  const out = [...list]
+  if (bucket === 'live') {
+    out.sort((a, b) => startedMs(b) - startedMs(a))
+  } else if (bucket === 'upcoming') {
+    out.sort((a, b) => scheduledMs(a) - scheduledMs(b))
+  } else {
+    out.sort((a, b) => scheduledMs(b) - scheduledMs(a))
+  }
+  return out
+}
+
+function derivePublicBucket(bucket: PublicBucket, all: Match[]): Match[] {
+  const filtered = all.filter((m) => m.status === bucket)
+  return sortPublicByBucket(bucket, filtered)
+}
+
+function notifyPublicBucket(bucket: PublicBucket) {
+  const list = derivePublicBucket(bucket, publicMatchesCache)
+  publicBuckets[bucket].forEach((cb) => cb(list))
+}
+
+function notifyAllPublicBuckets() {
+  ;(['live', 'upcoming', 'ended'] as const).forEach((b) => notifyPublicBucket(b))
+}
+
+function tearDownPublicListenerIfIdle() {
+  const total =
+    publicBuckets.live.size + publicBuckets.upcoming.size + publicBuckets.ended.size
+  if (total === 0 && publicMatchesUnsub) {
+    publicMatchesUnsub()
+    publicMatchesUnsub = null
+    publicMatchesCache = []
+    setPublicListenerErrorMessage(null)
+  }
+}
+
+function ensurePublicMatchesListener() {
+  if (publicMatchesUnsub) return
+
+  const q = query(collection(requireDb(), 'matches'), where('isPublic', '==', true))
+  publicMatchesUnsub = onSnapshot(
+    q,
+    (snap) => {
+      setPublicListenerErrorMessage(null)
+      publicMatchesCache = filterOutArchived(snap.docs)
+      notifyAllPublicBuckets()
+    },
+    (err: { code?: string; message?: string }) => {
+      const msg =
+        err.code === 'permission-denied'
+          ? 'Firestore is blocking public event reads until rules are deployed. On your machine: firebase login (or firebase login --reauth), set your default project to the same ID as VITE_FIREBASE_PROJECT_ID, then run npm run deploy:firestore-rules. Paste the rules from firestore.rules into the Firebase Console → Firestore → Rules if you cannot use the CLI.'
+          : (err.message ?? 'Firestore listener failed')
+      setPublicListenerErrorMessage(msg)
+      if (import.meta.env.DEV) {
+        console.warn('public matches listener:', err)
+      }
+      publicMatchesCache = []
+      notifyAllPublicBuckets()
+    },
+  )
+}
+
+function subscribeToPublicBucket(
+  bucket: PublicBucket,
+  callback: (matches: Match[]) => void,
+): Unsubscribe {
+  ensurePublicMatchesListener()
+  publicBuckets[bucket].add(callback)
+  callback(derivePublicBucket(bucket, publicMatchesCache))
+  return () => {
+    publicBuckets[bucket].delete(callback)
+    tearDownPublicListenerIfIdle()
+  }
+}
+
 export function subscribeToLiveMatches(
   callback: (matches: Match[]) => void,
 ): Unsubscribe {
-  const q = query(
-    collection(requireDb(), 'matches'),
-    where('status', '==', 'live'),
-    where('isPublic', '==', true),
-    orderBy('startedAt', 'desc'),
-  )
-  return onSnapshot(q, (snap) => {
-    callback(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Match))
-  })
+  return subscribeToPublicBucket('live', callback)
 }
 
 export function subscribeToUpcomingMatches(
   callback: (matches: Match[]) => void,
 ): Unsubscribe {
-  const q = query(
-    collection(requireDb(), 'matches'),
-    where('status', '==', 'upcoming'),
-    where('isPublic', '==', true),
-    orderBy('scheduledTime', 'asc'),
-  )
-  return onSnapshot(q, (snap) => {
-    callback(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Match))
-  })
+  return subscribeToPublicBucket('upcoming', callback)
+}
+
+export function subscribeToEndedPublicMatches(
+  callback: (matches: Match[]) => void,
+): Unsubscribe {
+  return subscribeToPublicBucket('ended', callback)
 }
 
 export async function startMatch(matchId: string, userId: string) {
@@ -192,6 +320,59 @@ export async function deleteMatch(matchId: string, userId: string) {
   await withTimeout(deleteDoc(doc(requireDb(), 'matches', matchId)), 10000, 'deleteMatch:deleteDoc')
 }
 
+export async function archiveMatch(matchId: string, userId: string): Promise<void> {
+  const match = await withTimeout(getMatch(matchId), 10000, 'archiveMatch:getMatch')
+  if (!match) throw new Error('Match not found')
+  if (match.creatorId !== userId) {
+    throw new Error('Only the creator can archive a match')
+  }
+  await withTimeout(
+    updateDoc(doc(requireDb(), 'matches', matchId), {
+      archived: true,
+      archivedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    }),
+    10000,
+    'archiveMatch',
+  )
+}
+
+export async function unarchiveMatch(matchId: string, userId: string): Promise<void> {
+  const match = await withTimeout(getMatch(matchId), 10000, 'unarchiveMatch:getMatch')
+  if (!match) throw new Error('Match not found')
+  if (match.creatorId !== userId) {
+    throw new Error('Only the creator can unarchive a match')
+  }
+  await withTimeout(
+    updateDoc(doc(requireDb(), 'matches', matchId), {
+      archived: false,
+      archivedAt: null,
+      updatedAt: serverTimestamp(),
+    }),
+    10000,
+    'unarchiveMatch',
+  )
+}
+
+/** Toggle current user on match notify list (Notify me when live). */
+export async function toggleNotify(matchId: string, userId: string): Promise<boolean> {
+  const database = requireDb()
+  const matchRef = doc(database, 'matches', matchId)
+  const snap = await withTimeout(getDoc(matchRef), 10000, 'toggleNotify:get')
+  if (!snap.exists()) throw new Error('Match not found')
+  const notifyList = (snap.data()?.notifyList as string[] | undefined) ?? []
+  const on = notifyList.includes(userId)
+  await withTimeout(
+    updateDoc(matchRef, {
+      notifyList: on ? arrayRemove(userId) : arrayUnion(userId),
+      updatedAt: serverTimestamp(),
+    }),
+    10000,
+    'toggleNotify:update',
+  )
+  return !on
+}
+
 export async function joinMatchAsRef(matchId: string, userId: string) {
   const database = requireDb()
   const match = await getMatch(matchId)
@@ -218,24 +399,41 @@ export async function joinMatchAsRef(matchId: string, userId: string) {
 
 export async function joinMatchAsSpectator(matchId: string, userId: string) {
   const database = requireDb()
-  const match = await getMatch(matchId)
-  if (!match) throw new Error('Match not found')
-  if (!match.allowSpectators) throw new Error('Spectators not allowed')
-  if (match.spectatorCount >= match.maxSpectators) {
-    throw new Error('Spectator limit reached')
-  }
+  const matchRef = doc(database, 'matches', matchId)
+  const participantsRef = collection(database, 'matches', matchId, 'participants')
 
-  await updateDoc(doc(database, 'matches', matchId), {
-    spectatorCount: increment(1),
-    updatedAt: serverTimestamp(),
-  })
+  const existing = await getDocs(query(participantsRef, where('userId', '==', userId)))
+  const alreadySpectator = existing.docs.some(
+    (d) => (d.data() as Participant).role === 'spectator',
+  )
+  if (alreadySpectator) return
 
-  await addDoc(collection(database, 'matches', matchId, 'participants'), {
-    matchId,
-    userId,
-    role: 'spectator' as ParticipantRole,
-    joinedAt: serverTimestamp(),
-    isConnected: true,
+  const newPartRef = doc(participantsRef)
+
+  await runTransaction(database, async (transaction) => {
+    const matchSnap = await transaction.get(matchRef)
+    if (!matchSnap.exists()) throw new Error('Match not found')
+    const m = matchSnap.data() as Match
+    if (!m.allowSpectators) throw new Error('Spectators not allowed')
+    const count = m.spectatorCount ?? 0
+    if (count >= m.maxSpectators) {
+      throw new Error('Spectator limit reached')
+    }
+    const newCount = count + 1
+    const peak = m.peakSpectators ?? 0
+    transaction.update(matchRef, {
+      spectatorCount: newCount,
+      peakSpectators: Math.max(peak, newCount),
+      updatedAt: serverTimestamp(),
+    })
+    transaction.set(newPartRef, {
+      matchId,
+      userId,
+      displayName: '',
+      role: 'spectator' as ParticipantRole,
+      joinedAt: serverTimestamp(),
+      isConnected: true,
+    })
   })
 }
 
@@ -245,18 +443,24 @@ export async function leaveMatch(
   role: ParticipantRole,
 ) {
   const database = requireDb()
+  const matchRef = doc(database, 'matches', matchId)
   if (role === 'spectator') {
     await withTimeout(
-      updateDoc(doc(database, 'matches', matchId), {
-        spectatorCount: increment(-1),
-        updatedAt: serverTimestamp(),
+      runTransaction(database, async (transaction) => {
+        const matchSnap = await transaction.get(matchRef)
+        if (!matchSnap.exists()) return
+        const count = (matchSnap.data()?.spectatorCount as number | undefined) ?? 0
+        transaction.update(matchRef, {
+          spectatorCount: Math.max(0, count - 1),
+          updatedAt: serverTimestamp(),
+        })
       }),
-      5000,
-      'leaveMatch:updateDoc',
+      10000,
+      'leaveMatch:transaction',
     )
   } else {
     await withTimeout(
-      updateDoc(doc(database, 'matches', matchId), {
+      updateDoc(matchRef, {
         activeRefs: arrayRemove(userId),
         updatedAt: serverTimestamp(),
       }),
@@ -281,7 +485,20 @@ export async function ensureRefParticipant(
   const participantsRef = collection(database, 'matches', matchId, 'participants')
   const q = query(participantsRef, where('userId', '==', userId))
   const snap = await getDocs(q)
-  if (!snap.empty) return
+  if (!snap.empty) {
+    const d = snap.docs[0]
+    const existing = d.data() as Participant
+    if (
+      existing.role === 'spectator' &&
+      (role === 'referee' || role === 'creator')
+    ) {
+      await updateDoc(d.ref, {
+        role,
+        displayName,
+      })
+    }
+    return
+  }
 
   await addDoc(participantsRef, {
     matchId,
@@ -432,7 +649,8 @@ export async function findMatchByCode(
         return
       }
       const d = snap.docs[0]
-      resolve({ id: d.id, ...d.data() } as Match)
+      const m = { id: d.id, ...d.data() } as Match
+      resolve(m.archived ? null : m)
     })
   })
 
@@ -453,7 +671,8 @@ export async function findMatchByCode(
         return
       }
       const d = snap.docs[0]
-      resolve({ id: d.id, ...d.data() } as Match)
+      const m = { id: d.id, ...d.data() } as Match
+      resolve(m.archived ? null : m)
     })
   })
 }

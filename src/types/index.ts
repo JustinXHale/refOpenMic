@@ -21,6 +21,8 @@ export interface UserProfile {
   email?: string
   phoneNumber?: string
   photoURL?: string
+  /** If true, event detail may show email + mailto for organizer contact (POC). */
+  showEmailPublic?: boolean
   /** Match IDs the user bookmarked to track (still listed in public Events too). */
   savedMatchIds?: string[]
 }
@@ -56,6 +58,15 @@ export interface Match {
   startedAt?: Timestamp
   endedAt?: Timestamp
 
+  /** Soft-hide from discovery lists; document retained for history/stats. */
+  archived?: boolean
+  archivedAt?: Timestamp
+  /** Denormalized at create time for display without cross-user profile reads. */
+  creatorDisplayName?: string
+
+  /** High-water mark for concurrent spectators (updated on join). */
+  peakSpectators?: number
+
   isPublic: boolean
   isPrivate: boolean
   allowSpectators: boolean
@@ -83,7 +94,7 @@ export interface Participant {
   id: string
   matchId: string
   userId: string
-  displayName: string
+  displayName?: string
   role: ParticipantRole
   joinedAt: Timestamp
   leftAt?: Timestamp

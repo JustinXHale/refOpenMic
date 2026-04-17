@@ -160,6 +160,9 @@ function seedDemoMatches() {
       waitingRoom: [],
       notifyList: [],
       spectatorCount: s.spectatorCount ?? 0,
+      peakSpectators: s.spectatorCount ?? 0,
+      archived: false,
+      creatorDisplayName: 'Demo Referee',
       roomId: id,
       roomName: `match-${id}`,
       maxRefs: DEFAULT_MAX_REFS,
@@ -201,6 +204,9 @@ function ensureFields(match: Match): Match {
   if (!match.eventType) match.eventType = 'sport'
   if (!match.eventSubtype) match.eventSubtype = 'rugby'
   if (!match.refRoles) match.refRoles = {}
+  if (match.archived == null) match.archived = false
+  if (match.peakSpectators == null) match.peakSpectators = match.spectatorCount ?? 0
+  if (!match.creatorDisplayName) match.creatorDisplayName = 'Organizer'
   return match
 }
 
@@ -223,6 +229,7 @@ export interface CreateMatchInput {
   allowSpectators: boolean
   maxRefs: number
   creatorId: string
+  creatorDisplayName: string
 }
 
 export function demoCreateMatch(input: CreateMatchInput): string {
@@ -245,11 +252,14 @@ export function demoCreateMatch(input: CreateMatchInput): string {
     refCode: generateCode(),
     spectatorCode: input.isPrivate ? generateCode() : undefined,
     creatorId: input.creatorId,
+    creatorDisplayName: input.creatorDisplayName,
     adminIds: [input.creatorId],
     activeRefs: [input.creatorId],
     waitingRoom: [],
     notifyList: [],
     spectatorCount: 0,
+    peakSpectators: 0,
+    archived: false,
     roomId: id,
     roomName: `match-${id}`,
     maxRefs: input.maxRefs || DEFAULT_MAX_REFS,
@@ -269,11 +279,21 @@ export function demoGetMatch(matchId: string): Match | null {
 }
 
 export function demoGetLiveMatches(): Match[] {
-  return loadMatches().filter((m) => m.status === 'live' && m.isPublic)
+  return loadMatches().filter(
+    (m) => m.status === 'live' && m.isPublic && !m.archived,
+  )
 }
 
 export function demoGetUpcomingMatches(): Match[] {
-  return loadMatches().filter((m) => m.status === 'upcoming' && m.isPublic)
+  return loadMatches().filter(
+    (m) => m.status === 'upcoming' && m.isPublic && !m.archived,
+  )
+}
+
+export function demoGetEndedPublicMatches(): Match[] {
+  return loadMatches().filter(
+    (m) => m.status === 'ended' && m.isPublic && !m.archived,
+  )
 }
 
 /** Bookmarked match IDs (local demo). Prunes IDs if the match was deleted. */
@@ -385,6 +405,28 @@ export function demoDeleteMatch(matchId: string, userId: string) {
   saveMatches(matches.filter((m) => m.id !== matchId))
 }
 
+export function demoArchiveMatch(matchId: string, userId: string) {
+  const matches = loadMatches()
+  const match = matches.find((m) => m.id === matchId)
+  if (!match) throw new Error('Match not found')
+  if (match.creatorId !== userId) throw new Error('Only the creator can archive a match')
+  ensureFields(match)
+  match.archived = true
+  match.archivedAt = now() as Match['archivedAt']
+  saveMatches(matches)
+}
+
+export function demoUnarchiveMatch(matchId: string, userId: string) {
+  const matches = loadMatches()
+  const match = matches.find((m) => m.id === matchId)
+  if (!match) throw new Error('Match not found')
+  if (match.creatorId !== userId) throw new Error('Only the creator can unarchive a match')
+  ensureFields(match)
+  match.archived = false
+  match.archivedAt = undefined
+  saveMatches(matches)
+}
+
 /**
  * Try to join using any 6-char code. Returns the match and which code type matched.
  */
@@ -467,7 +509,9 @@ export function demoJoinAsSpectator(matchId: string, _userId: string) {
   const matches = loadMatches()
   const match = matches.find((m) => m.id === matchId)
   if (!match) throw new Error('Match not found')
+  ensureFields(match)
   match.spectatorCount += 1
+  match.peakSpectators = Math.max(match.peakSpectators ?? 0, match.spectatorCount)
   saveMatches(matches)
 }
 

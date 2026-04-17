@@ -3,6 +3,7 @@ import {
   useContext,
   useEffect,
   useState,
+  useCallback,
   type ReactNode,
 } from 'react'
 import {
@@ -26,6 +27,7 @@ interface AuthState {
   signUpWithEmail: (email: string, password: string, displayName: string) => Promise<void>
   signInDemo: () => void
   signOut: () => Promise<void>
+  refreshProfile: () => Promise<void>
 }
 
 const DEMO_USER = {
@@ -126,6 +128,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setProfile(null)
   }
 
+  const refreshProfile = useCallback(async () => {
+    const u = user
+    if (!u || !db || isDemo) return
+    try {
+      const profileRef = doc(db, 'users', u.uid)
+      const snap = await getDoc(profileRef)
+      if (snap.exists()) {
+        setProfile({ id: snap.id, ...snap.data() } as UserProfile)
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [user, isDemo])
+
   return (
     <AuthContext.Provider
       value={{
@@ -139,6 +155,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signUpWithEmail,
         signInDemo,
         signOut,
+        refreshProfile,
       }}
     >
       {children}

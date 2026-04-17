@@ -46,6 +46,13 @@ export function MatchListItem({ match, saved }: MatchListItemProps) {
         py: 1,
         gap: 1.5,
         '&:hover': { bgcolor: 'action.hover' },
+        ...(match.status === 'ended' || match.archived
+          ? {
+              opacity: 0.72,
+              bgcolor: 'action.hover',
+              filter: 'grayscale(0.35)',
+            }
+          : {}),
       }}
     >
       <ListItemAvatar sx={{ minWidth: 'auto' }}>
@@ -75,6 +82,18 @@ export function MatchListItem({ match, saved }: MatchListItemProps) {
                 label="LIVE"
                 sx={{ fontWeight: 700, height: 20, '& .MuiChip-label': { px: 0.75 } }}
               />
+            )}
+            {match.status === 'ended' && (
+              <Chip
+                size="small"
+                color="default"
+                variant="outlined"
+                label="ENDED"
+                sx={{ fontWeight: 700, height: 20, '& .MuiChip-label': { px: 0.75 } }}
+              />
+            )}
+            {match.archived && (
+              <Chip size="small" label="Archived" color="default" variant="outlined" sx={{ height: 20 }} />
             )}
             {saved && (
               <BookmarkAddedOutlinedIcon sx={{ fontSize: 16, color: 'secondary.main', flexShrink: 0 }} />

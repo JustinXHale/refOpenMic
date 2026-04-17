@@ -25,18 +25,22 @@ import { useMatch } from '@/hooks/useMatches'
 import { useSavedMatchIds } from '@/hooks/useSavedMatchIds'
 import { toggleSaveMatch } from '@/services/savedMatches'
 import TextField from '@mui/material/TextField'
+import Link from '@mui/material/Link'
 import {
   startMatch,
   endMatch,
-  deleteMatch,
   joinMatchAsSpectator,
   joinMatchAsRef,
   setRefRole,
+  archiveMatch,
+  unarchiveMatch,
+  toggleNotify,
 } from '@/services/matches'
 import {
   demoStartMatch,
   demoEndMatch,
-  demoDeleteMatch,
+  demoArchiveMatch,
+  demoUnarchiveMatch,
   demoJoinAsSpectator,
   demoLeaveWaitingRoom,
   demoToggleNotify,
@@ -44,14 +48,27 @@ import {
   demoUpdateMaxRefs,
   demoSetRefRole,
 } from '@/services/demo'
-import { MAX_REFS_LIMIT, REF_ROLE_OPTIONS } from '@/types'
+import { MAX_REFS_LIMIT, REF_ROLE_OPTIONS, type Match } from '@/types'
 import { refDisplayName } from '@/lib/refNames'
 import { useToast } from '@/contexts/ToastContext'
+
+function matchDurationLabel(match: Match): string | null {
+  const st = match.startedAt as { toDate?: () => Date } | undefined
+  const en = match.endedAt as { toDate?: () => Date } | undefined
+  if (!st?.toDate || !en?.toDate) return null
+  const ms = en.toDate().getTime() - st.toDate().getTime()
+  if (ms < 0) return null
+  const totalMin = Math.floor(ms / 60000)
+  const h = Math.floor(totalMin / 60)
+  const min = totalMin % 60
+  if (h > 0) return `${h}h ${min}m`
+  return `${totalMin} min`
+}
 
 export function MatchDetailPage() {
   const { matchId } = useParams<{ matchId: string }>()
   const { match, loading } = useMatch(matchId)
-  const { user, isDemo } = useAuth()
+  const { user, isDemo, profile } = useAuth()
   const savedIds = useSavedMatchIds()
   const navigate = useNavigate()
   const { showToast } = useToast()
@@ -144,21 +161,42 @@ export function MatchDetailPage() {
     }
   }
 
-  const handleDeleteMatch = async () => {
+  const handleArchiveMatch = async () => {
     if (!user || !matchId) return
-    if (!window.confirm('Delete this event permanently? This cannot be undone.')) return
+    if (
+      !window.confirm(
+        'Archive this event? It will be hidden from public lists but kept for your history and stats.',
+      )
+    ) {
+      return
+    }
     try {
       setError(null)
       if (isDemo) {
-        demoDeleteMatch(matchId, user.uid)
+        demoArchiveMatch(matchId, user.uid)
       } else {
-        await deleteMatch(matchId, user.uid)
+        await archiveMatch(matchId, user.uid)
       }
-      showToast('Event deleted')
-      navigate(-1)
+      showToast('Event archived')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete')
-      showToast('Failed to delete event', 'error')
+      setError(err instanceof Error ? err.message : 'Failed to archive')
+      showToast('Failed to archive event', 'error')
+    }
+  }
+
+  const handleUnarchiveMatch = async () => {
+    if (!user || !matchId) return
+    try {
+      setError(null)
+      if (isDemo) {
+        demoUnarchiveMatch(matchId, user.uid)
+      } else {
+        await unarchiveMatch(matchId, user.uid)
+      }
+      showToast('Event restored')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to unarchive')
+      showToast('Failed to restore event', 'error')
     }
   }
 
@@ -212,7 +250,8 @@ export function MatchDetailPage() {
   }
 
   const handleEnterRoom = () => {
-    const role = isRef ? 'referee' : 'spectator'
+    const role =
+      isRef || isCreator || isAdmin ? 'referee' : 'spectator'
     navigate(`/match/${matchId}/room?role=${role}`)
   }
 
@@ -221,9 +260,19 @@ export function MatchDetailPage() {
     if (isDemo) demoLeaveWaitingRoom(matchId, user.uid)
   }
 
-  const handleToggleNotify = () => {
+  const handleToggleNotify = async () => {
     if (!user || !matchId) return
-    if (isDemo) demoToggleNotify(matchId, user.uid)
+    try {
+      setError(null)
+      if (isDemo) {
+        demoToggleNotify(matchId, user.uid)
+      } else {
+        await toggleNotify(matchId, user.uid)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update notifications')
+      showToast('Could not update notifications', 'error')
+    }
   }
 
   const isSaved = !!(user && matchId && savedIds.includes(matchId))
@@ -271,6 +320,7 @@ export function MatchDetailPage() {
   }
 
   const s = statusChip[match.status]
+  const durationLabel = matchDurationLabel(match)
 
   return (
     <AppShell>
@@ -293,6 +343,7 @@ export function MatchDetailPage() {
               <Stack direction="row" flexWrap="wrap" gap={1} sx={{ mb: 2 }}>
                 <Chip size="small" label={s.label} color={s.color} variant={match.status === 'live' ? 'filled' : 'outlined'} />
                 {match.isPrivate && <Chip size="small" label="Private" color="warning" variant="outlined" />}
+                {match.archived && <Chip size="small" label="Archived" color="default" variant="outlined" />}
               </Stack>
 
               <Typography variant="h6" fontWeight={700} gutterBottom>
@@ -318,9 +369,50 @@ export function MatchDetailPage() {
                     at {scheduledDate.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
                   </Typography>
                 </Stack>
+                <Box sx={{ pt: 1 }}>
+                  <Typography variant="caption" color="text.secondary" fontWeight={600} display="block">
+                    Organizer
+                  </Typography>
+                  <Typography variant="body2" color="text.primary">
+                    {match.creatorDisplayName || 'Organizer'}
+                  </Typography>
+                  {isCreator && profile?.showEmailPublic && user?.email && (
+                    <Link href={`mailto:${user.email}`} variant="body2" sx={{ mt: 0.5, display: 'inline-block' }}>
+                      {user.email} (shared because of your profile setting)
+                    </Link>
+                  )}
+                </Box>
               </Stack>
             </CardContent>
           </Card>
+
+          {match.status === 'ended' && isAdmin && (
+            <Card elevation={2} sx={{ bgcolor: 'grey.50' }}>
+              <CardContent>
+                <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5 }}>
+                  Event summary
+                </Typography>
+                <Stack spacing={0.75}>
+                  {durationLabel && (
+                    <Typography variant="body2" color="text.secondary">
+                      Duration: <strong>{durationLabel}</strong>
+                    </Typography>
+                  )}
+                  <Typography variant="body2" color="text.secondary">
+                    Referees on roster:{' '}
+                    <strong>{match.activeRefs.length}</strong>
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Spectators (final): <strong>{match.spectatorCount}</strong>
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Peak concurrent listeners:{' '}
+                    <strong>{match.peakSpectators ?? match.spectatorCount}</strong>
+                  </Typography>
+                </Stack>
+              </CardContent>
+            </Card>
+          )}
 
           {(isAdmin || isRef) && (
             <Card elevation={2}>
@@ -655,15 +747,20 @@ export function MatchDetailPage() {
               </Button>
             )}
 
-            {match.status === 'ended' && (
+            {match.status === 'ended' && !isAdmin && (
               <Typography align="center" color="text.secondary" variant="body2">
                 This event has ended.
               </Typography>
             )}
 
-            {isCreator && (
-              <Button color="error" fullWidth onClick={handleDeleteMatch}>
-                Delete Event
+            {isCreator && !match.archived && (
+              <Button color="warning" fullWidth variant="outlined" onClick={handleArchiveMatch}>
+                Archive Event
+              </Button>
+            )}
+            {isCreator && match.archived && (
+              <Button color="primary" fullWidth variant="outlined" onClick={handleUnarchiveMatch}>
+                Restore from archive
               </Button>
             )}
           </Stack>
