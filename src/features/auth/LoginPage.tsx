@@ -105,11 +105,19 @@ export function LoginPage() {
 
       <Container maxWidth="sm" sx={{ py: 6, maxWidth: 512 }}>
         <Stack spacing={3} alignItems="center" textAlign="center" sx={{ mb: 4 }}>
-          <Typography variant="h4" component="p" fontWeight={700}>
-            refOpenMic
-          </Typography>
+          <Stack direction="row" alignItems="center" spacing={1.5}>
+            <Box
+              component="img"
+              src="/favicon.png"
+              alt=""
+              sx={{ height: 40, objectFit: 'contain' }}
+            />
+            <Typography variant="h4" component="p" fontWeight={700}>
+              refOpenMic
+            </Typography>
+          </Stack>
           <Typography variant="body2" color="text.secondary">
-            {isSignUp ? 'Create an account to get started' : 'Sign in to create and join events'}
+            {isSignUp ? 'Create an account to get started' : 'Sign in to create and join events'} &middot; v0.1
           </Typography>
         </Stack>
 

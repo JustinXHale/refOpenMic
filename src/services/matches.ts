@@ -314,6 +314,85 @@ export async function removeParticipant(
   await Promise.all(deletes)
 }
 
+export async function muteParticipant(
+  matchId: string,
+  targetUserId: string,
+  muted: boolean,
+): Promise<void> {
+  const database = requireDb()
+  const participantsRef = collection(database, 'matches', matchId, 'participants')
+  const q = query(participantsRef, where('userId', '==', targetUserId))
+  const snap = await getDocs(q)
+  const updates = snap.docs.map((d) =>
+    updateDoc(d.ref, { isMutedByAdmin: muted }),
+  )
+  await withTimeout(Promise.all(updates), 10000, 'muteParticipant')
+}
+
+export async function muteAllParticipants(
+  matchId: string,
+  muted: boolean,
+): Promise<void> {
+  const database = requireDb()
+  const participantsRef = collection(database, 'matches', matchId, 'participants')
+  const q = query(participantsRef, where('role', 'in', ['referee', 'creator']))
+  const snap = await getDocs(q)
+  const updates = snap.docs.map((d) =>
+    updateDoc(d.ref, { isMutedByAdmin: muted }),
+  )
+  await withTimeout(Promise.all(updates), 10000, 'muteAllParticipants')
+}
+
+export async function grantAdmin(
+  matchId: string,
+  targetUserId: string,
+): Promise<void> {
+  const database = requireDb()
+  await withTimeout(
+    updateDoc(doc(database, 'matches', matchId), {
+      adminIds: arrayUnion(targetUserId),
+      updatedAt: serverTimestamp(),
+    }),
+    10000,
+    'grantAdmin',
+  )
+}
+
+export async function revokeAdmin(
+  matchId: string,
+  targetUserId: string,
+): Promise<void> {
+  const database = requireDb()
+  await withTimeout(
+    updateDoc(doc(database, 'matches', matchId), {
+      adminIds: arrayRemove(targetUserId),
+      updatedAt: serverTimestamp(),
+    }),
+    10000,
+    'revokeAdmin',
+  )
+}
+
+export async function transferOwnership(
+  matchId: string,
+  currentOwnerId: string,
+  newOwnerId: string,
+): Promise<void> {
+  const database = requireDb()
+  const match = await getMatch(matchId)
+  if (!match) throw new Error('Match not found')
+  if (match.creatorId !== currentOwnerId) throw new Error('Only the owner can transfer ownership')
+  await withTimeout(
+    updateDoc(doc(database, 'matches', matchId), {
+      creatorId: newOwnerId,
+      adminIds: arrayUnion(newOwnerId),
+      updatedAt: serverTimestamp(),
+    }),
+    10000,
+    'transferOwnership',
+  )
+}
+
 export async function setRefRole(
   matchId: string,
   targetUserId: string,

@@ -114,11 +114,19 @@ export function HomePage() {
         <Box sx={{ px: 2, pt: 3, pb: 2 }}>
           <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
             <Box>
-              <Typography variant="h4" component="h1" fontWeight={700}>
-                refOpenMic
-              </Typography>
+              <Stack direction="row" alignItems="center" spacing={1}>
+                <Box
+                  component="img"
+                  src="/favicon.png"
+                  alt=""
+                  sx={{ height: 32, objectFit: 'contain' }}
+                />
+                <Typography variant="h4" component="h1" fontWeight={700}>
+                  refOpenMic
+                </Typography>
+              </Stack>
               <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                Referee communication for everyone
+                Referee communication for everyone &middot; v0.1
               </Typography>
             </Box>
             <ToggleButtonGroup

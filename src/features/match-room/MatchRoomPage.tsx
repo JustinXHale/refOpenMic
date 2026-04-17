@@ -17,7 +17,17 @@ import { ConnectionState, type Room } from 'livekit-client'
 import { useAuth } from '@/contexts/AuthContext'
 import { Header } from '@/components/layout/Header'
 import { useMatch } from '@/hooks/useMatches'
-import { leaveMatch, subscribeToParticipants, ensureRefParticipant, removeParticipant } from '@/services/matches'
+import {
+  leaveMatch,
+  subscribeToParticipants,
+  ensureRefParticipant,
+  removeParticipant,
+  muteParticipant,
+  muteAllParticipants,
+  grantAdmin,
+  revokeAdmin,
+  transferOwnership,
+} from '@/services/matches'
 import { useToast } from '@/contexts/ToastContext'
 import {
   connectToRoom,
@@ -214,6 +224,7 @@ export function MatchRoomPage() {
 
   const handleRemove = async (targetUserId: string) => {
     if (!matchId || !isAdmin) return
+    if (targetUserId === match.creatorId) return
     if (!window.confirm('Remove this participant?')) return
     try {
       if (isDemo) {
@@ -227,31 +238,87 @@ export function MatchRoomPage() {
     }
   }
 
-  const handleToggleAdmin = (
+  const handleToggleAdmin = async (
     targetUserId: string,
     currentlyAdmin: boolean,
   ) => {
-    if (!matchId || !isCreator || !isDemo) return
-    if (currentlyAdmin) {
-      demoRevokeAdmin(matchId, user.uid, targetUserId)
-    } else {
-      demoGrantAdmin(matchId, user.uid, targetUserId)
+    if (!matchId || !isCreator) return
+    try {
+      if (isDemo) {
+        if (currentlyAdmin) {
+          demoRevokeAdmin(matchId, user.uid, targetUserId)
+        } else {
+          demoGrantAdmin(matchId, user.uid, targetUserId)
+        }
+      } else {
+        if (currentlyAdmin) {
+          await revokeAdmin(matchId, targetUserId)
+        } else {
+          await grantAdmin(matchId, targetUserId)
+        }
+      }
+      showToast(currentlyAdmin ? 'Admin rights removed' : 'Admin rights granted')
+    } catch {
+      showToast('Failed to update admin rights', 'error')
     }
   }
 
-  const handleToggleMuteParticipant = (targetUserId: string) => {
-    if (!matchId || !isAdmin || !isDemo) return
-    demoToggleMuteParticipant(matchId, targetUserId)
+  const handleToggleMuteParticipant = async (targetUserId: string) => {
+    if (!matchId || !isAdmin) return
+    const target = participants.find((p) => p.userId === targetUserId)
+    const newMuted = !target?.isMutedByAdmin
+    try {
+      if (isDemo) {
+        demoToggleMuteParticipant(matchId, targetUserId)
+      } else {
+        await muteParticipant(matchId, targetUserId, newMuted)
+      }
+    } catch {
+      showToast('Failed to update mute', 'error')
+    }
   }
 
-  const handleMuteAll = () => {
-    if (!matchId || !isAdmin || !isDemo) return
-    demoMuteAll(matchId)
+  const handleMuteAll = async () => {
+    if (!matchId || !isAdmin) return
+    try {
+      if (isDemo) {
+        demoMuteAll(matchId)
+      } else {
+        await muteAllParticipants(matchId, true)
+      }
+      showToast('All refs muted')
+    } catch {
+      showToast('Failed to mute all', 'error')
+    }
   }
 
-  const handleUnmuteAll = () => {
-    if (!matchId || !isAdmin || !isDemo) return
-    demoUnmuteAll(matchId)
+  const handleUnmuteAll = async () => {
+    if (!matchId || !isAdmin) return
+    try {
+      if (isDemo) {
+        demoUnmuteAll(matchId)
+      } else {
+        await muteAllParticipants(matchId, false)
+      }
+      showToast('All refs unmuted')
+    } catch {
+      showToast('Failed to unmute all', 'error')
+    }
+  }
+
+  const handleTransferOwnership = async (targetUserId: string) => {
+    if (!matchId || !isCreator) return
+    const target = participants.find((p) => p.userId === targetUserId)
+    const name = target?.displayName || 'this person'
+    if (!window.confirm(`Transfer ownership to ${name}? You will lose owner privileges.`)) return
+    try {
+      if (!isDemo) {
+        await transferOwnership(matchId, user.uid, targetUserId)
+      }
+      showToast(`Ownership transferred to ${name}`)
+    } catch {
+      showToast('Failed to transfer ownership', 'error')
+    }
   }
 
   const connectionColors = {
@@ -441,16 +508,28 @@ export function MatchRoomPage() {
                           {p.isMutedByAdmin ? 'Unmute' : 'Mute'}
                         </Button>
                         {isCreator && !pIsCreator && (
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            color="warning"
-                            onClick={() =>
-                              handleToggleAdmin(p.userId, !!pIsAdmin)
-                            }
-                          >
-                            {pIsAdmin ? '- Admin' : '+ Admin'}
-                          </Button>
+                          <>
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              color="warning"
+                              onClick={() =>
+                                handleToggleAdmin(p.userId, !!pIsAdmin)
+                              }
+                            >
+                              {pIsAdmin ? '- Admin' : '+ Admin'}
+                            </Button>
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              color="info"
+                              onClick={() =>
+                                handleTransferOwnership(p.userId)
+                              }
+                            >
+                              Transfer
+                            </Button>
+                          </>
                         )}
                         {!pIsCreator && (
                           <Button

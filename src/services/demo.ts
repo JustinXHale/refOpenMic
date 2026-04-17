@@ -3,7 +3,7 @@ import { DEFAULT_MAX_REFS } from '@/types'
 import { EVENT_PHOTO_PRESETS } from '@/lib/eventPhotos'
 
 const STORAGE_KEY = 'refOpenMic_demo_matches'
-const SEED_KEY = 'refOpenMic_demo_seeded'
+const SEED_KEY = 'refOpenMic_demo_seeded_v2'
 const SAVED_KEY_PREFIX = 'refOpenMic_demo_saved_'
 
 function savedStorageKey(userId: string) {
@@ -37,7 +37,7 @@ function hoursFromNow(hours: number): unknown {
 
 function seedDemoMatches() {
   if (localStorage.getItem(SEED_KEY)) return
-  const demoCreator = 'demo-organizer-001'
+  const demoCreator = 'demo-user-001'
   const seeds: Partial<Match>[] = [
     {
       title: 'MLR Semi-Final: Houston vs Dallas',
